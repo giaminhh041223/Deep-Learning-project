@@ -1,0 +1,15 @@
+# Core libraries
+numpy>=1.23.0
+opencv-python>=4.8.0
+matplotlib>=3.7.0
+
+# Face detection & alignment
+insightface>=0.7.3
+
+# ONNX runtime (CPU + CoreML)
+onnxruntime>=1.17.0
+onnxruntime-coreml>=1.17.0
+
+# Optional: for testing & notebook visualization
+jupyter
+pytest
