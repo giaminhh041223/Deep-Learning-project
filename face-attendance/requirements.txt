@@ -1,0 +1,10 @@
+# Pin to NumPy<2 to avoid ABI mismatch with some wheels (onnxruntime/insightface)
+numpy<2
+opencv-python>=4.9.0
+insightface==0.7.3
+scipy>=1.10
+pillow>=10.0
+# CPU (x86_64 / others)
+# onnxruntime>=1.16; platform_machine != "arm64" or platform_system != "Darwin"
+# Apple Silicon (arm64 macOS): uninstall the above and install this if needed
+onnxruntime-silicon>=1.16; platform_machine == "arm64" and platform_system == "Darwin"
