@@ -1,314 +1,299 @@
 import os
 import cv2
 import time
-import datetime
+from datetime import datetime
 import numpy as np
-import threading
-from pathlib import Path
-from flask import Flask, render_template, Response, jsonify, request
+from flask import Flask, render_template, Response, jsonify, request, redirect, url_for, session
+from werkzeug.utils import secure_filename
+
+# --- CẤU HÌNH DLL CUDA (WINDOWS) ---
+if os.name == 'nt':
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(current_dir)
+        os.add_dll_directory(project_root)
+        print(f"[INFO] Đã thêm DLL directory: {project_root}")
+    except Exception as e:
+        print(f"[WARN] Không thể thêm DLL directory: {e}")
+
+# Import Modules
 from src.config import CFG
 from src.detection import Detector
 from src.alignment import Aligner
 from src.embedding import Embedder
 from src.matching import FaceBank
 from src.draw import draw_bbox_landmarks, draw_label
+import src.backend_manager as db
 
-# --- CẤU HÌNH FLASK ---
+# --- FLASK SETUP ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
 template_dir = os.path.join(current_dir, 'templates')
 if not os.path.exists(template_dir):
-    template_dir = os.path.join(os.path.dirname(current_dir), 'templates')
+    template_dir = os.path.join(os.path.dirname(current_dir), 'src', 'templates')
 
 app = Flask(__name__, template_folder=template_dir)
+app.secret_key = 'face_attendance_secret_key_super_secure' 
 
-# --- KHỞI TẠO MODELS ---
-print("[INFO] Đang tải các mô hình AI...")
-detector = Detector()
-aligner = Aligner(112)
-embedder = Embedder()
-facebank = FaceBank()
-print("[INFO] Hệ thống sẵn sàng!")
+# --- AI INIT ---
+print("[INFO] Loading AI Models...")
+try:
+    detector = Detector()
+    aligner = Aligner(112)
+    embedder = Embedder()
+    facebank = FaceBank()
+    print("[INFO] AI Ready!")
+except Exception as e:
+    print(f"[ERROR] AI Init Failed: {e}")
 
-# --- DB ĐIỂM DANH & TRẠNG THÁI ---
-attendance_db = {}
-current_user_detected = {"name": "Chưa xác định", "info": {}}
+# --- GLOBAL STATE ---
+# current_class_id đã bị xóa để tránh lỗi logic
+live_sessions = {} 
+current_detected_student = {"name": "Unknown", "mssv": "---", "info": {}}
 
-# --- BIẾN TRẠNG THÁI CHO QUÁ TRÌNH ĐĂNG KÝ ---
-registration_state = {
-    "is_active": False,
-    "step": 0,          
-    "person_name": "",
-    "person_mssv": "",
-    "person_class": "",
-    "captured_count": 0,
-    "target_count": 5,  
-    "message": "",
-    "captured_embeddings": [] 
-}
+# --- HELPER ---
+def get_session_duration(class_id):
+    return 90 
 
-def format_duration(seconds):
-    if not seconds: return "0h 0m"
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    return f"{hours}h {minutes}m"
+# --- ROUTES ---
+@app.route('/')
+def index():
+    if 'user' in session: return redirect(url_for('dashboard'))
+    return redirect(url_for('login'))
 
-def process_manual_attendance(action_type):
-    """Xử lý khi bấm nút Vào Lớp/Ra Về"""
-    global attendance_db, current_user_detected
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        user = request.form.get('username')
+        pw = request.form.get('password')
+        if db.login_user(user, pw):
+            session['user'] = user
+            return redirect(url_for('dashboard'))
+        return render_template('login.html', error="Invalid Username or Password")
+    return render_template('login.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        user = request.form.get('username')
+        pw = request.form.get('password')
+        if db.register_user(user, pw):
+            return redirect(url_for('login'))
+        return render_template('register.html', error="Username already exists")
+    return render_template('register.html')
+
+@app.route('/logout')
+def logout():
+    session.pop('user', None)
+    return redirect(url_for('login'))
+
+@app.route('/dashboard')
+def dashboard():
+    if 'user' not in session: return redirect(url_for('login'))
+    classes = db.get_all_classes()
+    return render_template('dashboard.html', user=session['user'], classes=classes)
+
+@app.route('/students')
+def students_page():
+    if 'user' not in session: return redirect(url_for('login'))
+    all_students = []
+    classes = db.get_all_classes()
+    for cls_meta in classes:
+        cls_data = db.get_class_detail(cls_meta['id'])
+        if cls_data and 'students' in cls_data:
+            for s in cls_data['students']:
+                s_copy = s.copy()
+                s_copy['class_code'] = cls_data['class_code']
+                s_copy['class_id'] = cls_data['class_id']
+                all_students.append(s_copy)
+    return render_template('students.html', user=session['user'], students=all_students)
+
+@app.route('/reports')
+def reports_page():
+    if 'user' not in session: return redirect(url_for('login'))
+    classes = db.get_all_classes()
+    summary = []
+    total_students = 0
+    total_classes = len(classes)
+    for cls_meta in classes:
+        cls_data = db.get_class_detail(cls_meta['id'])
+        if cls_data:
+            s_count = len(cls_data.get('students', []))
+            total_students += s_count
+            passing = sum(1 for s in cls_data['students'] if s['attendance_score'] > 0)
+            rate = (passing / s_count * 100) if s_count > 0 else 0
+            summary.append({
+                "name": cls_data['class_code'],
+                "students": s_count,
+                "rate": round(rate, 1)
+            })
+    return render_template('reports.html', user=session['user'], summary=summary, total_students=total_students, total_classes=total_classes)
+
+@app.route('/create_class', methods=['POST'])
+def create_class():
+    if 'user' not in session: return redirect(url_for('login'))
+    code = request.form.get('code')
+    lecturer = request.form.get('lecturer')
+    sessions = request.form.get('sessions')
+    class_id = db.create_class(code, lecturer, sessions)
     
-    name = current_user_detected["name"]
-    info = current_user_detected["info"]
-    now = time.time()
+    file = request.files.get('excel_file')
+    if file and file.filename:
+        filename = secure_filename(file.filename)
+        project_root = os.path.dirname(current_dir)
+        data_dir = os.path.join(project_root, 'data')
+        if not os.path.exists(data_dir): os.makedirs(data_dir)
+        path = os.path.join(data_dir, filename)
+        file.save(path)
+        db.import_excel(class_id, path)
+        try: os.remove(path)
+        except: pass
+    return redirect(url_for('dashboard'))
 
-    if name == "Chưa xác định" or name == "Unknown":
-        return False, "Không nhận diện được khuôn mặt! Vui lòng đứng chính diện."
+@app.route('/attendance/<class_id>')
+def attendance(class_id):
+    if 'user' not in session: return redirect(url_for('login'))
+    # Không dùng global current_class_id nữa
+    class_info = db.get_class_detail(class_id)
+    return render_template('attendance.html', user=session['user'], class_info=class_info)
 
-    if name not in attendance_db:
-        attendance_db[name] = {
-            "name": info.get('name', name),
-            "mssv": info.get('mssv', '---'),
-            "class_name": info.get('class', '---'),
-            "status": "N/A", 
-            "checkin_time": None, 
-            "checkout_time": None, 
-            "total_work": 0,
-            "history": []
-        }
+@app.route('/class_detail/<class_id>')
+def class_detail(class_id):
+    if 'user' not in session: return redirect(url_for('login'))
+    info = db.get_class_detail(class_id)
+    return render_template('class_detail.html', user=session['user'], class_info=info)
 
-    user = attendance_db[name]
-    msg = ""
-    success = True
-    time_str = time.strftime('%H:%M:%S')
+# --- API ---
+@app.route('/api/detect_info')
+def api_detect_info():
+    return jsonify(current_detected_student)
 
-    # NÚT VÀO LỚP
-    if action_type == "checkin":
-        if user["status"] == "CHECKED_IN":
-            success = False
-            msg = f"Sinh viên {name} đã điểm danh rồi!"
+@app.route('/api/mark', methods=['POST'])
+def api_mark():
+    global live_sessions
+    data = request.json
+    action = data.get('action')
+    mssv = data.get('mssv')
+    name = data.get('name')
+    class_id = data.get('class_id') # Nhận class_id từ frontend
+
+    if not class_id:
+        return jsonify({"success": False, "msg": "Class ID missing!"})
+
+    if not mssv or mssv == "---":
+        return jsonify({"success": False, "msg": "No student detected!"})
+
+    # Kiểm tra sinh viên có trong lớp không
+    class_info = db.get_class_detail(class_id)
+    is_in_class = False
+    if class_info:
+        for s in class_info.get('students', []):
+            if s['mssv'] == mssv:
+                is_in_class = True
+                break
+    
+    if not is_in_class:
+        return jsonify({"success": False, "msg": f"Student {name} is not in this class!"})
+
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    if action == 'in':
+        if mssv in live_sessions:
+            return jsonify({"success": False, "msg": f"{name} already Checked-in!"})
+        live_sessions[mssv] = {"in": now_str, "name": name}
+        return jsonify({"success": True, "msg": f"Checked IN: {name} at {now_str}"})
+
+    elif action == 'out':
+        if mssv not in live_sessions:
+            return jsonify({"success": False, "msg": f"{name} has NOT Checked-in yet!"})
+        
+        checkin_time = live_sessions[mssv]['in']
+        checkout_time = now_str
+        session_mins = get_session_duration(class_id)
+        ok, status, dur = db.process_checkout(class_id, mssv, checkin_time, checkout_time, session_mins)
+        
+        if ok:
+            del live_sessions[mssv]
+            return jsonify({"success": True, "msg": f"Checked OUT: {name}. Duration: {dur}m. Status: {status}"})
         else:
-            user["status"] = "CHECKED_IN"
-            user["checkin_time"] = now
-            msg = f"Xin chào {name}! Đã vào lớp lúc {time_str}."
-            user["history"].insert(0, {"action": "Vào Lớp", "time": time_str})
+            return jsonify({"success": False, "msg": "Error updating database."})
 
-    # NÚT RA VỀ
-    elif action_type == "checkout":
-        if user["status"] != "CHECKED_IN":
-            success = False
-            msg = f"Sinh viên {name} chưa vào lớp, không thể ra về!"
-        else:
-            user["status"] = "CHECKED_OUT"
-            user["checkout_time"] = now
-            
-            # Tính giờ học
-            session = now - user["checkin_time"]
-            user["total_work"] += session
-            total_str = format_duration(user["total_work"])
-            
-            msg = f"Tạm biệt {name}! Thời gian học: {total_str}."
-            user["history"].insert(0, {"action": "Ra Về", "time": time_str, "duration": total_str})
+    return jsonify({"success": False, "msg": "Invalid action"})
 
-    return success, msg
+@app.route('/api/register_new', methods=['POST'])
+def api_register_new():
+    data = request.json
+    name = data.get('name')
+    mssv = data.get('mssv')
+    class_id = data.get('class_id') # Nhận class_id từ frontend
 
+    if not class_id:
+         return jsonify({"success": False, "msg": "Class ID missing!"})
+
+    # 1. Kiểm tra Global DB (FaceBank)
+    student_in_global = False
+    for record in facebank.meta:
+        if record.get('mssv') == mssv:
+            student_in_global = True
+            break
+    
+    # 2. Thêm vào Lớp học
+    added = db.add_student(class_id, name, mssv, "General", "HUST")
+    
+    msg = f"Added {name} to class." if added else f"{name} already in class."
+    
+    # 3. Phản hồi
+    if student_in_global:
+        return jsonify({"success": True, "msg": f"{msg} (Face data exists)", "require_capture": False})
+    else:
+        return jsonify({"success": True, "msg": f"{msg} (New face - Capture needed)", "require_capture": True})
+
+# --- STREAM ---
 def generate_frames():
-    global current_user_detected, registration_state
-    
+    global current_detected_student
     camera = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     if not camera.isOpened(): camera = cv2.VideoCapture(0)
-
-    frame_count = 0
-    detect_interval = 3
-    last_capture_time = 0
     
+    frame_count = 0
     while True:
         success, frame = camera.read()
         if not success: break
         
-        frame = cv2.flip(frame, 1)
         img = frame.copy()
-
-        # --- LOGIC ĐĂNG KÝ ---
-        if registration_state["is_active"]:
-            cv2.putText(img, f"MODE: DANG KY ({registration_state['captured_count']}/{registration_state['target_count']})", 
-                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
-            
-            now = time.time()
+        if frame_count % 3 == 0:
             dets = detector.detect(img, min_face=CFG.min_face)
+            best_face = None
+            max_area = 0
+            for d in dets:
+                bbox = d['bbox']
+                area = (bbox[2]-bbox[0]) * (bbox[3]-bbox[1])
+                if area > max_area:
+                    max_area = area
+                    best_face = d
             
-            if dets:
-                best_face = max(dets, key=lambda x: (x['bbox'][2]-x['bbox'][0]) * (x['bbox'][3]-x['bbox'][1]))
-                bbox = best_face['bbox']
+            if best_face:
                 kps = best_face['kps']
+                crop = aligner.align(img, kps)
+                emb = embedder.embed(crop)
+                label, score, info = facebank.match(emb, threshold=CFG.threshold)
                 
-                draw_bbox_landmarks(img, bbox, kps, color=(0, 165, 255))
+                real_name = info.get('name', 'Unknown') if info else label.split('|')[0]
+                real_mssv = info.get('mssv', '---') if info else '---'
                 
-                if registration_state["captured_count"] < registration_state["target_count"]:
-                    if now - last_capture_time > 0.8: 
-                        crop = aligner.align(img, kps)
-                        emb = embedder.embed(crop)
-                        
-                        registration_state["captured_embeddings"].append(emb)
-                        registration_state["captured_count"] += 1
-                        last_capture_time = now
-                        registration_state["message"] = "Đang chụp... Giữ nguyên."
-                else:
-                    # Giai đoạn lưu dữ liệu
-                    if registration_state["step"] != 2: # Đảm bảo chỉ chạy 1 lần
-                        registration_state["step"] = 2
-                        registration_state["message"] = "Đang lưu dữ liệu..."
-                        
-                        try:
-                            feats = np.stack(registration_state["captured_embeddings"], axis=0)
-                            mean_feat = np.mean(feats, axis=0)
-                            mean_feat = mean_feat / (np.linalg.norm(mean_feat) + 1e-9)
-                            
-                            # Thêm vào FaceBank
-                            facebank.add(mean_feat, 
-                                         name=registration_state["person_name"],
-                                         cls=registration_state["person_class"],
-                                         mssv=registration_state["person_mssv"])
-                            
-                            # Lưu file ngay lập tức
-                            facebank.save()
-                            print(f"[INFO] Đã lưu sinh viên mới: {registration_state['person_name']} vào {facebank.dir}")
-                            
-                            registration_state["message"] = "Đăng ký thành công!"
-                        except Exception as e:
-                            print(f"[ERROR] Lưu thất bại: {e}")
-                            registration_state["message"] = "Lỗi khi lưu!"
-
-                    # Tự động tắt sau 2 giây
-                    if now - last_capture_time > 2.0:
-                        registration_state["is_active"] = False
-                        
+                current_detected_student = {"name": real_name, "mssv": real_mssv, "info": info}
+                
+                color = (0, 255, 0) if real_name != "Unknown" else (0, 0, 255)
+                draw_bbox_landmarks(img, best_face['bbox'], kps, color)
+                draw_label(img, best_face['bbox'], real_name, color)
             else:
-                cv2.putText(img, "Khong thay khuon mat!", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-
-        # --- LOGIC ĐIỂM DANH ---
-        else:
-            if frame_count % detect_interval == 0:
-                dets = detector.detect(img, min_face=CFG.min_face)
-                found_someone = False
-                
-                best_face = None
-                max_area = 0
-                for d in dets:
-                    bbox = d['bbox']
-                    area = (bbox[2]-bbox[0]) * (bbox[3]-bbox[1])
-                    if area > max_area:
-                        max_area = area
-                        best_face = d
-                
-                if best_face:
-                    kps = best_face['kps']
-                    crop = aligner.align(img, kps)
-                    emb = embedder.embed(crop)
-                    
-                    label_str, score, info = facebank.match(emb, threshold=CFG.threshold)
-                    real_name = info.get('name', 'Unknown') if info else label_str.split('|')[0].strip()
-                    
-                    if real_name != "Unknown":
-                        current_user_detected = {"name": real_name, "info": info}
-                        found_someone = True
-                    
-                    color = (0, 255, 0) if real_name != "Unknown" else (0, 0, 255)
-                    draw_bbox_landmarks(img, best_face['bbox'], kps, color=color)
-                    
-                    disp = f"{real_name}"
-                    if real_name in attendance_db:
-                        stat = attendance_db[real_name]["status"]
-                        if stat == "CHECKED_IN": disp += " [Lop]"
-                    
-                    draw_label(img, best_face['bbox'], disp, color=color)
-                
-                if not found_someone:
-                    current_user_detected = {"name": "Chưa xác định", "info": {}}
-
+                current_detected_student = {"name": "Unknown", "mssv": "---"}
+        
         frame_count += 1
         ret, buffer = cv2.imencode('.jpg', img)
         yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-    
-    camera.release()
-
-@app.route('/')
-def index():
-    return render_template('index.html')
 
 @app.route('/video_feed')
 def video_feed():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-@app.route('/api/action', methods=['POST'])
-def handle_action():
-    data = request.json
-    action = data.get('action') 
-    success, msg = process_manual_attendance(action)
-    return jsonify({"success": success, "message": msg})
-
-@app.route('/api/history', methods=['GET'])
-def get_history():
-    name = request.args.get('name')
-    if name and name in attendance_db:
-        return jsonify(attendance_db[name]["history"])
-    return jsonify([])
-
-@app.route('/api/stats')
-def get_stats():
-    data = []
-    sorted_users = sorted(attendance_db.values(), key=lambda x: max(x['checkin_time'] or 0, x['checkout_time'] or 0), reverse=True)
-    
-    for u in sorted_users:
-        checkin = time.strftime('%H:%M:%S', time.localtime(u['checkin_time'])) if u['checkin_time'] else "--:--"
-        checkout = time.strftime('%H:%M:%S', time.localtime(u['checkout_time'])) if u['checkout_time'] else "--:--"
-        total = format_duration(u['total_work'])
-        
-        running_time = ""
-        if u['status'] == "CHECKED_IN":
-            elapsed = time.time() - u['checkin_time']
-            running_time = format_duration(elapsed)
-
-        data.append({
-            "mssv": u['mssv'],
-            "name": u['name'],
-            "class_name": u['class_name'],
-            "status": u['status'],
-            "checkin": checkin,
-            "checkout": checkout,
-            "total": total,
-            "running": running_time
-        })
-        
-    return jsonify({
-        "users": data, 
-        "current_detect": current_user_detected["name"],
-        "reg_status": {
-            "active": registration_state["is_active"],
-            "count": registration_state["captured_count"],
-            "total": registration_state["target_count"],
-            "message": registration_state["message"]
-        }
-    })
-
-@app.route('/api/register', methods=['POST'])
-def start_register():
-    data = request.json
-    name = data.get('name')
-    mssv = data.get('mssv')
-    cls = data.get('class')
-    
-    if not name or not mssv:
-        return jsonify({"success": False, "message": "Thiếu thông tin bắt buộc!"})
-        
-    registration_state["is_active"] = True
-    registration_state["step"] = 1 # Bắt đầu chụp
-    registration_state["person_name"] = name
-    registration_state["person_mssv"] = mssv
-    registration_state["person_class"] = cls
-    registration_state["captured_count"] = 0
-    registration_state["captured_embeddings"] = []
-    registration_state["message"] = "Bắt đầu chụp..."
-    
-    return jsonify({"success": True, "message": "Đã chuyển sang chế độ đăng ký"})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
