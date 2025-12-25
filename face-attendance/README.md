@@ -78,3 +78,5 @@ python -m scripts.capture_person --num 20 --duration 5
 python -m scripts.register_faces --people_dir data/people --meta_csv data/people/meta.csv
 
 python -m src.app --source 0
+
+python -m src.frontend --source 0
