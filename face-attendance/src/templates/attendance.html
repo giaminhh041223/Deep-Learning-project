@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+
+{% block header_title %}
+    <span class="text-gray-400 font-medium text-lg">Attendance Check <i class="fas fa-chevron-right text-xs mx-2"></i></span> 
+    <span class="text-blue-600">{{ class_info.class_code }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex h-full gap-6">
+    
+    <!-- LEFT: CAMERA FEED (70%) -->
+    <div class="w-2/3 flex flex-col gap-4">
+        <div class="bg-black rounded-2xl shadow-xl border border-gray-200 overflow-hidden flex-1 relative group">
+            <div class="absolute top-4 left-4 z-20 flex gap-2">
+                <div class="bg-red-600/90 backdrop-blur-sm text-white text-xs font-bold px-3 py-1.5 rounded-md flex items-center shadow-lg animate-pulse">
+                    <span class="w-2 h-2 bg-white rounded-full mr-2"></span> LIVE
+                </div>
+            </div>
+            <img src="{{ url_for('video_feed') }}" class="w-full h-full object-contain bg-neutral-900">
+            <div class="absolute bottom-0 inset-x-0 bg-white/95 backdrop-blur-xl p-5 border-t border-gray-100 flex items-center justify-between shadow-[0_-10px_40px_rgba(0,0,0,0.1)] transition-transform duration-300">
+                <div class="flex items-center gap-5">
+                    <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center text-3xl border-4 border-white shadow-md text-gray-400 overflow-hidden relative">
+                        <i class="fas fa-user absolute"></i>
+                    </div>
+                    <div>
+                        <p class="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-0.5">Detected Student</p>
+                        <h3 class="text-2xl font-bold text-gray-800 leading-none tracking-tight mb-1" id="det-name">Searching...</h3>
+                        <p class="text-sm font-mono text-blue-600 font-medium bg-blue-50 px-2 py-0.5 rounded inline-block border border-blue-100" id="det-mssv">---</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- RIGHT: CONTROLS & LOGS (30%) -->
+    <div class="w-1/3 flex flex-col gap-6">
+        <div class="bg-white p-6 rounded-2xl shadow-md border border-gray-200">
+            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center">
+                <i class="fas fa-sliders-h mr-2"></i> Actions
+            </h3>
+            <div class="grid grid-cols-2 gap-3 mb-3">
+                <button onclick="mark('in')" class="flex flex-col items-center justify-center p-5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl shadow-md hover:shadow-lg transition-all transform hover:-translate-y-1 group active:translate-y-0">
+                    <i class="fas fa-sign-in-alt text-2xl mb-2 group-hover:scale-110 transition-transform"></i>
+                    <span class="font-bold tracking-wide">CHECK IN</span>
+                </button>
+                <button onclick="mark('out')" class="flex flex-col items-center justify-center p-5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow-md hover:shadow-lg transition-all transform hover:-translate-y-1 group active:translate-y-0">
+                    <i class="fas fa-sign-out-alt text-2xl mb-2 group-hover:scale-110 transition-transform"></i>
+                    <span class="font-bold tracking-wide">CHECK OUT</span>
+                </button>
+            </div>
+            
+            <!-- Nút Đăng Ký Thông Minh -->
+            <button onclick="handleRegisterClick()" class="w-full py-3.5 bg-gray-800 hover:bg-gray-900 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2 shadow-md">
+                <i class="fas fa-user-plus"></i> Register Student
+            </button>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-md border border-gray-200 flex-1 flex flex-col overflow-hidden">
+            <div class="p-4 border-b border-gray-100 bg-gray-50/80 flex justify-between items-center backdrop-blur-sm">
+                <h3 class="text-sm font-bold text-gray-700 flex items-center gap-2">
+                    <i class="fas fa-history text-blue-500"></i> Session Log
+                </h3>
+                <span class="text-[10px] bg-white border border-gray-200 px-2 py-1 rounded-full text-green-600 font-bold flex items-center gap-1 shadow-sm">
+                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> Live
+                </span>
+            </div>
+            <div id="session-log" class="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/30 custom-scrollbar">
+                <div class="flex flex-col items-center justify-center h-full text-gray-400">
+                    <i class="fas fa-clipboard-list text-3xl mb-2 opacity-30"></i>
+                    <p class="text-sm italic">Waiting for activity...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL ĐĂNG KÝ THÔNG MINH -->
+<div id="reg-modal" class="fixed inset-0 bg-gray-900/70 hidden flex items-center justify-center z-50 backdrop-blur-sm transition-opacity opacity-0" style="transition: opacity 0.3s ease;">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md transform transition-all scale-95" id="reg-content" style="transition: transform 0.3s ease;">
+        
+        <!-- Header Modal -->
+        <div class="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/80 rounded-t-2xl">
+            <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <i class="fas fa-user-plus text-blue-600"></i> <span id="reg-title">Register New Student</span>
+            </h3>
+            <button onclick="closeRegModal()" class="text-gray-400 hover:text-red-500 text-xl leading-none">&times;</button>
+        </div>
+        
+        <!-- Body Modal -->
+        <div class="p-6 space-y-4">
+            
+            <!-- Trường hợp 1: Chưa nhận diện được (Form nhập liệu) -->
+            <div id="reg-form-new" class="space-y-4">
+                <div class="bg-blue-50 p-3 rounded-lg text-xs text-blue-700 border border-blue-100 mb-4">
+                    <i class="fas fa-info-circle mr-1"></i> 
+                    No face detected in database. Please enter details to register and capture face data.
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Full Name</label>
+                    <input type="text" id="new-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="e.g. Nguyen Van A">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Student ID (MSSV)</label>
+                    <input type="text" id="new-mssv" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="e.g. 20201234">
+                </div>
+            </div>
+
+            <!-- Trường hợp 2: Đã nhận diện được (Xác nhận thêm vào lớp) -->
+            <div id="reg-form-exist" class="hidden text-center py-4">
+                <div class="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3 text-green-600 text-3xl shadow-sm">
+                    <i class="fas fa-user-check"></i>
+                </div>
+                <h4 class="text-xl font-bold text-gray-800" id="exist-name">Nguyen Van A</h4>
+                <p class="text-sm text-gray-500 font-mono bg-gray-100 px-2 py-1 rounded inline-block mt-1 mb-4 border border-gray-200" id="exist-mssv">20201234</p>
+                <p class="text-sm text-gray-600">
+                    This student exists in the Global Database but is not in this class list.
+                    <br><strong>Add them to this class now?</strong>
+                </p>
+            </div>
+
+        </div>
+
+        <!-- Footer Modal -->
+        <div class="p-5 border-t border-gray-100 flex justify-end gap-3 bg-gray-50/50 rounded-b-2xl">
+            <button onclick="closeRegModal()" class="px-5 py-2.5 text-gray-600 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg font-medium transition-colors text-sm">Cancel</button>
+            <button onclick="submitRegistration()" id="btn-submit-reg" class="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 text-sm">
+                Register & Capture
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const CLASS_ID = "{{ class_info.class_id }}";
+
+    // Polling thông tin nhận diện
+    setInterval(() => {
+        fetch('/api/detect_info').then(r=>r.json()).then(data => {
+            const nameEl = document.getElementById('det-name');
+            const mssvEl = document.getElementById('det-mssv');
+            
+            // Xử lý hiển thị thông tin
+            if(data.name && data.name !== 'Unknown' && data.name !== 'Chưa xác định') {
+                nameEl.innerText = data.name;
+                nameEl.className = "text-2xl font-bold text-emerald-600 leading-none tracking-tight mb-1 animate-pulse";
+                mssvEl.innerText = data.mssv || "---";
+            } else {
+                nameEl.innerText = "Searching...";
+                nameEl.className = "text-2xl font-bold text-gray-400 leading-none tracking-tight mb-1";
+                mssvEl.innerText = "---";
+            }
+            
+            // Nếu đang trong chế độ chụp ảnh (Registration Mode)
+            if(data.reg_status && data.reg_status.active) {
+                const overlayText = `CAPTURING ${data.reg_status.count}/${data.reg_status.target}`;
+                // Có thể update UI thêm nếu muốn hiển thị progress bar ở đây
+            }
+        });
+    }, 500);
+
+    function mark(action) {
+        const mssv = document.getElementById('det-mssv').innerText;
+        const name = document.getElementById('det-name').innerText;
+        
+        if (mssv === "---" || name === "Searching...") {
+            alert("⚠️ No student detected in frame! Please stand in front of the camera.");
+            return;
+        }
+
+        fetch('/api/mark', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                action: action, 
+                mssv: mssv, 
+                name: name,
+                class_id: CLASS_ID 
+            })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if(data.success) {
+                addToLog(name, action, new Date().toLocaleTimeString());
+            } else {
+                alert("❌ " + data.msg);
+            }
+        });
+    }
+
+    // --- LOGIC ĐĂNG KÝ THÔNG MINH ---
+    function handleRegisterClick() {
+        const currentName = document.getElementById('det-name').innerText;
+        const currentMssv = document.getElementById('det-mssv').innerText;
+        const isUnknown = (currentName === "Searching..." || currentName === "Unknown");
+
+        // Reset form
+        document.getElementById('new-name').value = '';
+        document.getElementById('new-mssv').value = '';
+
+        if (isUnknown) {
+            // TH1: Chưa nhận diện được -> Hiện form nhập liệu đầy đủ
+            document.getElementById('reg-title').innerText = "Register New Student";
+            document.getElementById('reg-form-new').classList.remove('hidden');
+            document.getElementById('reg-form-exist').classList.add('hidden');
+            document.getElementById('btn-submit-reg').innerText = "Start Capture";
+            document.getElementById('btn-submit-reg').className = "px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-md transition-all text-sm";
+        } else {
+            // TH2: Đã nhận diện được (Có trong Global DB) -> Hiện form xác nhận thêm vào lớp
+            document.getElementById('reg-title').innerText = "Add Existing Student";
+            document.getElementById('reg-form-new').classList.add('hidden');
+            document.getElementById('reg-form-exist').classList.remove('hidden');
+            
+            document.getElementById('exist-name').innerText = currentName;
+            document.getElementById('exist-mssv').innerText = currentMssv;
+            
+            // Auto-fill hidden values for submission logic
+            document.getElementById('new-name').value = currentName;
+            document.getElementById('new-mssv').value = currentMssv;
+            
+            document.getElementById('btn-submit-reg').innerText = "Add to Class";
+            document.getElementById('btn-submit-reg').className = "px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold shadow-md transition-all text-sm";
+        }
+        
+        openRegModal();
+    }
+
+    function submitRegistration() {
+        const name = document.getElementById('new-name').value;
+        const mssv = document.getElementById('new-mssv').value;
+        
+        if(!name || !mssv) {
+            alert("Please enter Name and Student ID!");
+            return;
+        }
+
+        fetch('/api/register_new', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                name: name, 
+                mssv: mssv,
+                class_id: CLASS_ID 
+            })
+        }).then(r=>r.json()).then(d => {
+            closeRegModal();
+            alert(d.msg);
+            
+            if(d.require_capture) {
+                // Nếu cần chụp ảnh, backend đã bật cờ active
+                // Frontend chỉ cần chờ và hiển thị trạng thái (đã có trong hàm polling detect_info)
+                console.log("Capture mode started...");
+            }
+        });
+    }
+
+    function openRegModal() {
+        const modal = document.getElementById('reg-modal');
+        const content = document.getElementById('reg-content');
+        modal.classList.remove('hidden');
+        setTimeout(() => {
+            modal.classList.remove('opacity-0');
+            content.classList.remove('scale-95');
+            content.classList.add('scale-100');
+        }, 10);
+    }
+
+    function closeRegModal() {
+        const modal = document.getElementById('reg-modal');
+        const content = document.getElementById('reg-content');
+        modal.classList.add('opacity-0');
+        content.classList.remove('scale-100');
+        content.classList.add('scale-95');
+        setTimeout(() => modal.classList.add('hidden'), 300);
+    }
+
+    function addToLog(name, action, time) {
+        const logDiv = document.getElementById('session-log');
+        if(logDiv.innerText.includes("Waiting for activity")) logDiv.innerHTML = "";
+
+        const isCheckIn = action === 'in';
+        const colorClass = isCheckIn ? 'border-l-4 border-emerald-500 bg-emerald-50/50' : 'border-l-4 border-amber-500 bg-amber-50/50';
+        const textClass = isCheckIn ? 'text-emerald-700' : 'text-amber-700';
+        const label = isCheckIn ? 'CHECKED IN' : 'CHECKED OUT';
+
+        const html = `
+        <div class="p-3 rounded-r-lg shadow-sm border border-gray-100 ${colorClass} animate-fade-in-down flex justify-between items-center bg-white mb-2 transition-all hover:shadow-md">
+            <div>
+                <p class="font-bold text-gray-800 text-sm leading-tight">${name}</p>
+                <p class="text-[10px] font-bold ${textClass} tracking-wider">${label}</p>
+            </div>
+            <div class="text-right">
+                <p class="font-mono text-[10px] text-gray-400 bg-white px-1.5 py-0.5 rounded border border-gray-100">${time}</p>
+            </div>
+        </div>
+        `;
+        logDiv.insertAdjacentHTML('afterbegin', html);
+    }
+</script>
+
+<style>
+    @keyframes fadeInDown {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in-down { animation: fadeInDown 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    #session-log::-webkit-scrollbar { width: 4px; }
+    #session-log::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 4px; }
+</style>
+{% endblock %}

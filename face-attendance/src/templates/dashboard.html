@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+
+{% block header_title %}Class Management{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+    <!-- Action Bar -->
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+        <div>
+            <h3 class="text-2xl font-bold text-gray-800">Your Classes</h3>
+            <p class="text-sm text-gray-500 mt-1">Manage your courses and student lists efficiently.</p>
+        </div>
+        <button onclick="document.getElementById('modal-create').classList.remove('hidden')" 
+                class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-medium shadow-md flex items-center transition-all transform hover:-translate-y-0.5 active:translate-y-0">
+            <i class="fas fa-plus mr-2"></i> Create New Class
+        </button>
+    </div>
+
+    <!-- Class Grid -->
+    {% if classes %}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {% for cls in classes %}
+        <div class="bg-white rounded-xl shadow-sm hover:shadow-lg border border-gray-200 transition-all duration-300 flex flex-col group overflow-hidden relative">
+            <!-- Decorative Top Bar -->
+            <div class="h-1.5 w-full bg-gradient-to-r from-blue-500 to-indigo-600"></div>
+            
+            <div class="p-5 flex-1 relative">
+                <div class="flex justify-between items-start mb-3">
+                    <h4 class="text-lg font-bold text-gray-800 group-hover:text-blue-600 transition-colors line-clamp-1" title="{{ cls.code }}">{{ cls.code }}</h4>
+                    <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-1 rounded font-mono border border-gray-200 font-medium">ID: {{ cls.id }}</span>
+                </div>
+                
+                <p class="text-sm text-gray-600 mb-5 flex items-center">
+                    <div class="w-6 h-6 rounded-full bg-indigo-50 flex items-center justify-center mr-2 text-indigo-500">
+                        <i class="fas fa-user-tie text-xs"></i>
+                    </div>
+                    <span class="font-medium text-gray-700">{{ cls.lecturer }}</span>
+                </p>
+                
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-gray-50 p-3 rounded-lg border border-gray-100 text-center">
+                        <span class="block text-xs text-gray-400 uppercase tracking-wider font-semibold mb-1">Students</span>
+                        <span class="block text-lg font-bold text-gray-800">{{ cls.students }}</span>
+                    </div>
+                    <div class="bg-gray-50 p-3 rounded-lg border border-gray-100 text-center">
+                        <span class="block text-xs text-gray-400 uppercase tracking-wider font-semibold mb-1">Sessions</span>
+                        <span class="block text-lg font-bold text-gray-800">{{ cls.sessions }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="p-4 border-t border-gray-100 flex gap-3 bg-gray-50/50">
+                <a href="/attendance/{{ cls.id }}" class="flex-1 bg-white border border-gray-200 text-gray-700 text-center py-2 rounded-lg text-sm font-semibold hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all shadow-sm flex items-center justify-center gap-2">
+                    <i class="fas fa-video"></i> Check
+                </a>
+                <a href="/class_detail/{{ cls.id }}" class="flex-1 bg-white border border-gray-200 text-gray-700 text-center py-2 rounded-lg text-sm font-semibold hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-all shadow-sm flex items-center justify-center gap-2">
+                    <i class="fas fa-list"></i> Details
+                </a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <!-- Empty State -->
+    <div class="flex flex-col items-center justify-center py-20 bg-white rounded-xl border-2 border-dashed border-gray-300">
+        <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4">
+            <i class="fas fa-folder-open text-4xl text-gray-300"></i>
+        </div>
+        <h4 class="text-xl font-bold text-gray-600 mb-2">No Classes Yet</h4>
+        <p class="text-gray-500 mb-6 text-center max-w-sm">It looks empty here. Start by creating your first class to manage student attendance.</p>
+        <button onclick="document.getElementById('modal-create').classList.remove('hidden')" class="text-blue-600 hover:text-blue-800 font-semibold hover:underline flex items-center gap-1">
+            <i class="fas fa-plus-circle"></i> Create Class Now
+        </button>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Modal Create Class -->
+<div id="modal-create" class="fixed inset-0 bg-gray-900/60 hidden flex items-center justify-center z-50 backdrop-blur-sm transition-opacity opacity-0" style="transition: opacity 0.3s ease;">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg transform transition-all scale-95" id="modal-content" style="transition: transform 0.3s ease;">
+        <div class="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-2xl">
+            <h3 class="text-xl font-bold text-gray-800">Add New Class</h3>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-red-500 text-2xl leading-none">&times;</button>
+        </div>
+        
+        <form action="/create_class" method="POST" enctype="multipart/form-data" class="p-6 space-y-5">
+            <div class="grid grid-cols-2 gap-5">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1.5">Class Code</label>
+                    <input type="text" name="code" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="e.g. IT3030" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1.5">Total Sessions</label>
+                    <input type="number" name="sessions" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" value="15" required>
+                </div>
+            </div>
+            
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1.5">Lecturer Name</label>
+                <div class="relative">
+                    <span class="absolute left-3 top-2.5 text-gray-400"><i class="fas fa-user-tie"></i></span>
+                    <input type="text" name="lecturer" class="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="e.g. Dr. Nguyen Van A" required>
+                </div>
+            </div>
+            
+            <div class="bg-blue-50 p-4 rounded-lg border border-blue-100 group hover:border-blue-300 transition-colors">
+                <label class="block text-sm font-bold text-blue-800 mb-2 flex items-center gap-2">
+                    <i class="fas fa-file-import"></i> Import Students (Optional)
+                </label>
+                <input type="file" name="excel_file" accept=".xlsx, .xls" class="block w-full text-sm text-blue-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200 transition-all cursor-pointer">
+                <p class="text-[11px] text-blue-600/80 mt-2 font-medium ml-1">Expected columns: Name, MSSV, Department, School</p>
+            </div>
+
+            <div class="flex justify-end gap-3 mt-6 pt-2">
+                <button type="button" onclick="closeModal()" class="px-5 py-2.5 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors">Cancel</button>
+                <button type="submit" class="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5">Create Class</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    function openModal() {
+        const modal = document.getElementById('modal-create');
+        const content = document.getElementById('modal-content');
+        modal.classList.remove('hidden');
+        setTimeout(() => {
+            modal.classList.remove('opacity-0');
+            content.classList.remove('scale-95');
+            content.classList.add('scale-100');
+        }, 10);
+    }
+
+    function closeModal() {
+        const modal = document.getElementById('modal-create');
+        const content = document.getElementById('modal-content');
+        modal.classList.add('opacity-0');
+        content.classList.remove('scale-100');
+        content.classList.add('scale-95');
+        setTimeout(() => modal.classList.add('hidden'), 300);
+    }
+    
+    // Override default open behavior
+    document.querySelector('button[onclick*="modal-create"]').onclick = openModal;
+</script>
+{% endblock %}
