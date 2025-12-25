@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Điểm Danh Sinh Viên</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+    <style>
+        body { font-family: 'Roboto', sans-serif; background-color: #f3f4f6; color: #1f2937; }
+        .modern-table { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .btn-action { transition: all 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .btn-action:hover { transform: translateY(-2px); box-shadow: 0 6px 8px rgba(0,0,0,0.15); }
+        .btn-action:active { transform: translateY(1px); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <!-- HEADER -->
+    <header class="bg-white border-b border-gray-200 shadow-sm z-10">
+        <div class="h-16 flex items-center justify-between px-8">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-blue-600 text-white rounded-lg flex items-center justify-center font-bold text-xl shadow-md">
+                    <i class="fas fa-graduation-cap"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold text-gray-800 tracking-wide">ĐIỂM DANH SINH VIÊN</h1>
+                    <p class="text-xs text-gray-500 uppercase tracking-widest font-semibold">Hệ thống AI nhận diện khuôn mặt</p>
+                </div>
+            </div>
+            <div class="text-2xl font-mono font-bold text-blue-600 bg-gray-100 px-6 py-2 rounded-lg border border-gray-200 shadow-inner" id="clock">
+                00:00:00
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN -->
+    <div class="flex flex-1 overflow-hidden p-6 gap-6">
+        
+        <!-- CỘT TRÁI -->
+        <div class="w-[450px] flex flex-col gap-6">
+            <!-- Camera -->
+            <div class="bg-white p-2 rounded-2xl shadow-lg border border-gray-200 relative">
+                <div class="relative bg-black rounded-xl overflow-hidden aspect-video group">
+                    <div class="absolute top-4 left-4 bg-red-600 text-white text-[10px] px-3 py-1 rounded-full font-bold animate-pulse z-10 flex items-center gap-2 shadow-sm">
+                        <span class="w-2 h-2 bg-white rounded-full"></span> CAMERA
+                    </div>
+                    
+                    <div class="absolute bottom-0 inset-x-0 bg-white/90 backdrop-blur-sm p-3 text-center border-t border-gray-200 z-10 flex justify-between items-center px-6">
+                        <span class="text-gray-500 text-xs font-bold uppercase">Sinh viên:</span>
+                        <span class="text-blue-600 font-bold text-lg" id="detected-name">Đang tìm...</span>
+                        <button onclick="checkHistory()" class="text-gray-400 hover:text-blue-600 transition" title="Xem lịch sử"><i class="fas fa-history"></i></button>
+                    </div>
+                    
+                    <img src="{{ url_for('video_feed') }}" class="w-full h-full object-cover">
+
+                    <!-- OVERLAY ĐĂNG KÝ -->
+                    <div id="reg-overlay" class="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center text-white hidden">
+                        <div class="text-3xl mb-4 animate-bounce">📸</div>
+                        <h3 class="text-xl font-bold text-orange-400 mb-2">CHẾ ĐỘ ĐĂNG KÝ</h3>
+                        <p class="text-sm text-gray-300 mb-4" id="reg-msg">Đang chụp...</p>
+                        <div class="w-2/3 h-4 bg-gray-700 rounded-full overflow-hidden border border-gray-500">
+                            <div id="reg-progress" class="h-full bg-orange-500 transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                        <p class="mt-2 text-xs font-mono" id="reg-count">0/5</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Nút điều khiển -->
+            <div class="bg-white rounded-2xl shadow-lg border border-gray-200 p-6 flex-1 flex flex-col justify-center gap-4">
+                <button onclick="sendAction('checkin')" class="btn-action w-full bg-green-500 hover:bg-green-600 text-white rounded-xl py-3 flex items-center justify-center gap-4 group">
+                    <div class="bg-white/20 p-2 rounded-full group-hover:scale-110 transition"><i class="fas fa-school text-2xl"></i></div>
+                    <div class="text-left"><div class="font-bold text-lg uppercase">VÀO LỚP</div><div class="text-xs opacity-90">Bắt đầu buổi học</div></div>
+                </button>
+                
+                <button onclick="sendAction('checkout')" class="btn-action w-full bg-blue-500 hover:bg-blue-600 text-white rounded-xl py-3 flex items-center justify-center gap-4 group">
+                    <div class="bg-white/20 p-2 rounded-full group-hover:scale-110 transition"><i class="fas fa-walking text-2xl"></i></div>
+                    <div class="text-left"><div class="font-bold text-lg uppercase">RA VỀ</div><div class="text-xs opacity-90">Kết thúc buổi học</div></div>
+                </button>
+
+                <!-- Nút Đăng Ký Mới -->
+                <button onclick="openRegModal()" class="btn-action w-full bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-3 flex items-center justify-center gap-4 group mt-2 border-t-2 border-orange-400">
+                    <div class="bg-white/20 p-2 rounded-full group-hover:scale-110 transition"><i class="fas fa-user-graduate text-2xl"></i></div>
+                    <div class="text-left"><div class="font-bold text-lg uppercase">ĐĂNG KÝ MỚI</div><div class="text-xs opacity-90">Thêm sinh viên vào hệ thống</div></div>
+                </button>
+            </div>
+        </div>
+
+        <!-- CỘT PHẢI: BẢNG -->
+        <div class="flex-1 flex flex-col modern-table bg-white">
+            <div class="bg-gray-50 p-5 border-b border-gray-200 flex justify-between items-center">
+                <h2 class="font-bold text-gray-700 text-lg flex items-center gap-2"><i class="fas fa-list-alt text-blue-500"></i> DANH SÁCH SINH VIÊN</h2>
+                <div class="flex gap-4 text-xs font-semibold text-gray-500">
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 bg-green-500 rounded-full shadow-sm"></span> Trong lớp</div>
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 bg-blue-500 rounded-full shadow-sm"></span> Đã về</div>
+                </div>
+            </div>
+            <div class="bg-gray-100 p-4 grid grid-cols-12 gap-4 font-bold text-gray-500 text-xs uppercase tracking-wider border-b border-gray-200">
+                <div class="col-span-1 text-center">STT</div>
+                <div class="col-span-2">MSSV</div>
+                <div class="col-span-3">Họ và Tên</div>
+                <div class="col-span-2">Lớp/Khoa</div>
+                <div class="col-span-2 text-center">Trạng Thái</div>
+                <div class="col-span-2 text-right">Thời Gian</div>
+            </div>
+            <div class="flex-1 overflow-y-auto custom-scrollbar p-2">
+                <div id="table-body" class="space-y-1">
+                    <div class="p-10 text-center text-gray-400 italic">Đang tải dữ liệu...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL ĐĂNG KÝ -->
+    <div id="reg-modal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center backdrop-blur-sm transition-opacity opacity-0">
+        <div class="bg-white rounded-2xl shadow-2xl w-[400px] transform scale-95 transition-transform duration-300" id="reg-content">
+            <div class="p-5 border-b border-gray-200 bg-orange-50 rounded-t-2xl flex justify-between items-center">
+                <h3 class="font-bold text-orange-600 text-lg"><i class="fas fa-user-plus"></i> Đăng Ký Sinh Viên</h3>
+                <button onclick="closeRegModal()" class="text-gray-400 hover:text-red-500"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Họ và Tên</label>
+                    <input type="text" id="reg-name" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="VD: Nguyễn Văn A">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Mã Số Sinh Viên (MSSV)</label>
+                    <input type="text" id="reg-mssv" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="VD: 2024001">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Lớp / Khoa</label>
+                    <input type="text" id="reg-class" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="VD: K65-CNTT">
+                </div>
+                <div class="bg-blue-50 p-3 rounded-lg text-xs text-blue-700 flex items-start gap-2">
+                    <i class="fas fa-info-circle mt-0.5"></i>
+                    <p>Hệ thống sẽ chụp 5 bức ảnh để làm dữ liệu. Vui lòng nhìn thẳng camera.</p>
+                </div>
+            </div>
+            <div class="p-4 border-t border-gray-200 bg-gray-50 rounded-b-2xl flex justify-end gap-3">
+                <button onclick="closeRegModal()" class="px-4 py-2 text-gray-600 font-bold hover:bg-gray-200 rounded-lg transition">Hủy</button>
+                <button onclick="submitRegister()" class="px-6 py-2 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg transition shadow-md">Bắt đầu</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL LỊCH SỬ -->
+    <div id="history-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center backdrop-blur-sm opacity-0 transition-opacity">
+        <div class="bg-white rounded-2xl shadow-2xl w-[500px] max-h-[80vh] flex flex-col transform scale-95 transition-transform" id="hist-content">
+            <div class="p-5 border-b flex justify-between bg-gray-50 rounded-t-2xl">
+                <h3 class="font-bold text-gray-800 text-lg"><i class="fas fa-history text-blue-500"></i> Lịch Sử Ra/Vào</h3>
+                <button onclick="closeHistModal()" class="text-gray-400 hover:text-red-500"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-6 overflow-y-auto flex-1">
+                <h4 class="font-bold text-xl text-gray-800 mb-1" id="hist-name">Tên SV</h4>
+                <div id="hist-list" class="space-y-4 mt-4"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST -->
+    <div id="toast" class="fixed top-24 right-6 translate-x-[120%] transition-transform duration-500 z-[60] bg-white border-l-4 border-green-500 px-6 py-4 rounded-xl shadow-2xl flex items-center gap-4 max-w-sm">
+        <div class="bg-green-100 p-2 rounded-full text-green-600"><i class="fas fa-check text-xl"></i></div>
+        <div><h4 class="font-bold text-sm" id="toast-title">Thành công!</h4><p class="text-sm text-gray-600 mt-1" id="toast-msg">...</p></div>
+    </div>
+
+    <script>
+        // --- LOGIC ĐĂNG KÝ ---
+        function openRegModal() {
+            const modal = document.getElementById('reg-modal');
+            const content = document.getElementById('reg-content');
+            modal.classList.remove('hidden');
+            setTimeout(() => { modal.classList.remove('opacity-0'); content.classList.remove('scale-95'); content.classList.add('scale-100'); }, 10);
+        }
+
+        function closeRegModal() {
+            const modal = document.getElementById('reg-modal');
+            const content = document.getElementById('reg-content');
+            modal.classList.add('opacity-0'); content.classList.remove('scale-100'); content.classList.add('scale-95');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        }
+
+        function submitRegister() {
+            const name = document.getElementById('reg-name').value;
+            const mssv = document.getElementById('reg-mssv').value;
+            const cls = document.getElementById('reg-class').value;
+
+            if(!name || !mssv) {
+                showToast("Lỗi", "Vui lòng nhập tên và MSSV!", "error");
+                return;
+            }
+
+            fetch('/api/register', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name, mssv, class: cls})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if(data.success) {
+                    closeRegModal();
+                    showToast("Bắt đầu", "Hệ thống đang chụp ảnh...", "success");
+                } else {
+                    showToast("Lỗi", data.message, "error");
+                }
+            });
+        }
+
+        // --- LOGIC GIAO DIỆN CHUNG ---
+        function sendAction(type) {
+            fetch('/api/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: type })
+            })
+            .then(r => r.json())
+            .then(data => showToast(data.success ? 'Thành công' : 'Lỗi', data.message, data.success ? 'success' : 'error'));
+        }
+
+        function checkHistory() {
+            const name = document.getElementById('detected-name').innerText;
+            if(name === "Đang tìm..." || name === "Chưa xác định") return showToast("Lỗi", "Chưa nhận diện ai!", "error");
+            
+            fetch(`/api/history?name=${name}`).then(r=>r.json()).then(data => {
+                document.getElementById('hist-name').innerText = name;
+                const list = document.getElementById('hist-list');
+                list.innerHTML = data.length ? '' : '<p class="text-center text-gray-400 italic">Chưa có dữ liệu.</p>';
+                data.forEach(item => {
+                    const isCheckIn = item.action === "Vào Lớp";
+                    list.innerHTML += `<div class="flex items-center gap-3 p-3 rounded-lg border ${isCheckIn?'text-green-600 bg-green-50 border-green-200':'text-blue-600 bg-blue-50 border-blue-200'}">
+                        <div class="font-bold text-lg"><i class="fas ${isCheckIn?'fa-sign-in-alt':'fa-sign-out-alt'}"></i></div>
+                        <div><div class="font-bold text-sm">${item.action}</div><div class="text-xs opacity-75 font-mono">${item.time}</div></div>
+                        ${item.duration ? `<span class="ml-auto text-xs font-mono bg-gray-200 px-2 py-1 rounded text-gray-600">Học: ${item.duration}</span>` : ''}
+                    </div>`;
+                });
+                const modal = document.getElementById('history-modal');
+                const content = document.getElementById('hist-content');
+                modal.classList.remove('hidden');
+                setTimeout(() => { modal.classList.remove('opacity-0'); content.classList.remove('scale-95'); content.classList.add('scale-100'); }, 10);
+            });
+        }
+
+        function closeHistModal() {
+            const modal = document.getElementById('history-modal');
+            const content = document.getElementById('hist-content');
+            modal.classList.add('opacity-0'); content.classList.remove('scale-100'); content.classList.add('scale-95');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        }
+
+        function showToast(title, msg, type) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-title').innerText = title;
+            document.getElementById('toast-msg').innerText = msg;
+            toast.className = `fixed top-24 right-6 translate-x-[120%] transition-transform duration-500 z-[60] bg-white border-l-4 px-6 py-4 rounded-xl shadow-2xl flex items-center gap-4 max-w-sm ${type==='success'?'border-green-500 text-gray-800':'border-red-500 text-gray-800'}`;
+            toast.querySelector('div').className = `p-2 rounded-full ${type==='success'?'bg-green-100 text-green-600':'bg-red-100 text-red-600'}`;
+            toast.querySelector('i').className = `fas ${type==='success'?'fa-check':'fa-exclamation-triangle'} text-xl`;
+            
+            requestAnimationFrame(() => toast.classList.remove('translate-x-[120%]'));
+            setTimeout(() => toast.classList.add('translate-x-[120%]'), 3000);
+        }
+
+        function updateData() {
+            fetch('/api/stats').then(r => r.json()).then(res => {
+                const data = res.users;
+                
+                // Update detected name
+                const dName = document.getElementById('detected-name');
+                dName.innerText = res.current_detect;
+                dName.className = res.current_detect !== "Chưa xác định" ? "text-blue-600 font-bold text-lg animate-pulse" : "text-gray-400 font-bold text-lg";
+
+                // Update Registration Overlay
+                const reg = res.reg_status;
+                const overlay = document.getElementById('reg-overlay');
+                if(reg && reg.active) {
+                    overlay.classList.remove('hidden');
+                    document.getElementById('reg-msg').innerText = reg.message;
+                    document.getElementById('reg-count').innerText = `${reg.count}/${reg.total}`;
+                    document.getElementById('reg-progress').style.width = `${(reg.count/reg.total)*100}%`;
+                    if(reg.message === "Đăng ký thành công!") setTimeout(() => overlay.classList.add('hidden'), 2000);
+                } else {
+                    overlay.classList.add('hidden');
+                }
+
+                // Update Table
+                const tbody = document.getElementById('table-body');
+                if (data.length === 0) {
+                    tbody.innerHTML = '<div class="p-10 text-center text-gray-400 italic">Chưa có dữ liệu hôm nay...</div>';
+                    return;
+                }
+                let html = '';
+                data.forEach((u, index) => {
+                    const isCheckIn = u.status === 'CHECKED_IN';
+                    html += `
+                    <div class="grid grid-cols-12 gap-4 p-4 items-center text-sm border-b border-gray-100 hover:bg-blue-50/50 transition duration-150">
+                        <div class="col-span-1 text-center text-gray-400 font-mono font-bold">${index + 1}</div>
+                        <div class="col-span-2 font-mono text-gray-600 font-semibold bg-gray-50 px-2 py-1 rounded border border-gray-200 w-fit text-xs">${u.mssv}</div>
+                        <div class="col-span-3 font-bold text-gray-800 truncate flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center text-xs font-bold text-gray-600 shadow-sm border border-white">${u.name.charAt(0)}</div>
+                            ${u.name}
+                        </div>
+                        <div class="col-span-2 text-gray-500 font-medium text-xs bg-white px-2 py-1 rounded border border-gray-100 w-fit shadow-sm">${u.class_name}</div>
+                        <div class="col-span-2 text-center">
+                            ${isCheckIn ? 
+                            '<span class="px-3 py-1 rounded-full text-[10px] font-bold bg-green-100 text-green-700 border border-green-200 shadow-sm flex w-fit mx-auto items-center gap-1"><span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> TRONG LỚP</span>' : 
+                            '<span class="px-3 py-1 rounded-full text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-100 flex w-fit mx-auto items-center gap-1"><i class="fas fa-check"></i> ĐÃ VỀ</span>'}
+                        </div>
+                        <div class="col-span-2 text-right leading-tight">
+                            ${isCheckIn ? 
+                            `<div class="font-mono text-green-600 font-bold">${u.checkin}</div><div class="text-[10px] text-gray-400 font-medium">Học: ${u.running}</div>` : 
+                            `<div class="font-mono text-blue-600 font-bold">${u.checkout}</div><div class="text-[10px] text-gray-400 font-medium">Tổng: ${u.total}</div>`}
+                        </div>
+                    </div>`;
+                });
+                tbody.innerHTML = html;
+            });
+        }
+
+        setInterval(() => document.getElementById('clock').innerText = new Date().toLocaleTimeString('vi-VN'), 1000);
+        setInterval(updateData, 1000);
+    </script>
+</body>
+</html>
