@@ -9,10 +9,6 @@ def _default_providers():
     return [p for p in order if p in avail]
 
 class Embedder:
-    """
-    Dùng cùng bundle FaceAnalysis (buffalo_l) để lấy model recognition
-    và truyền providers rõ ràng cho ONNX Runtime trên macOS ARM.
-    """
     def __init__(self, providers=None):
         providers = providers or _default_providers()
         self.app = FaceAnalysis(name=CFG.bundle, providers=providers)
