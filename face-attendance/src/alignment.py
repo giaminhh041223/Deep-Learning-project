@@ -7,6 +7,5 @@ class Aligner:
         self.image_size = image_size
         
     def align(self, img_bgr: np.ndarray, kps: np.ndarray) -> np.ndarray:
-        # kps: (5,2) in original image coords
         crop = norm_crop(img_bgr, landmark=kps, image_size=self.image_size)
         return crop
