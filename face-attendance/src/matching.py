@@ -61,8 +61,6 @@ class FaceBank:
                     self.meta = []
             else:
                 self.meta = []
-
-            # Keep meta length in sync (truncate extra)
             if self.embeddings.shape[0] < len(self.meta):
                 self.meta = self.meta[: self.embeddings.shape[0]]
 
@@ -99,7 +97,6 @@ class FaceBank:
         
         if smax >= threshold and idx < len(self.meta):
             info = self.meta[idx]
-            # Tạo label hiển thị
             parts = [info.get("name", "").strip(), info.get("class", "").strip(), info.get("mssv", "").strip()]
             label = " | ".join([p for p in parts if p]) or "Unknown"
             return label, smax, info
